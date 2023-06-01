@@ -1,0 +1,91 @@
+In order to make our email field required in our database, we need to define a custom user model. Let's do it inside our accounts application.
+
+from django.db import models
+from django.contrib.auth.models import AbstractUser
+from django.utils.translation import gettext_lazy as _
+
+
+class CustomUser(AbstractUser):
+    email = models.EmailField(_('email address'), unique=True)
+
+Add to #Django settings.py
+AUTH_USER_MODEL = 'accounts.CustomUser'
+
+After this run migrations
+python3 manage.py makemigrations
+python3 manage.py migrate
+
+Create a new custom authentication backend for our app. This allows us to override the default logic of our authentication system since we're trying to allow our users to log in with their email or username.
+
+from django.contrib.auth.backends import ModelBackend
+from django.contrib.auth import get_user_model
+from django.db.models import Q
+
+
+UserModel = get_user_model()
+
+
+class EmailBackend(ModelBackend):
+    def authenticate(self, request, username=None, password=None, **kwargs):
+        try:
+            user = UserModel.objects.get(Q(username__iexact=username) | Q(email__iexact=username))
+        except UserModel.DoesNotExist:
+            UserModel().set_password(password)
+            return
+        except UserModel.MultipleObjectsReturned:
+            user = UserModel.objects.filter(Q(username__iexact=username) | Q(email__iexact=username)).order_by('id').first()
+
+        if user.check_password(password) and self.user_can_authenticate(user):
+            return user
+
+Modify the settings.py to register your custom authentication backend.
+
+AUTH_USER_MODEL = 'accounts.CustomUser'
+AUTHENTICATION_BACKENDS = ['accounts.backends.EmailBackend']
+
+You also need to adjust our forms.py to make sure our views ask the right data.
+
+from django.contrib.auth.forms import UserCreationForm, AuthenticationForm
+from django.contrib.auth import get_user_model
+from django import forms
+
+
+class RegisterForm(UserCreationForm):
+    class Meta:
+        model = get_user_model()
+        fields = ('email', 'username', 'password1', 'password2')
+
+
+class LoginForm(AuthenticationForm):
+    username = forms.CharField(label='Email / Username')
+
+Next step, create a login and register forms. To do this, open the forms.py file in the myapp directory and write the following code
+
+
+You need to create templates for our login and register forms. To do this, create a new file called login.html in the myapp/templates/ directory and add the following code:
+
+<h1>Login</h1>
+
+<form action="{% url "login" %}" method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit" id="submit">Login</button>
+</form>
+
+<h1>Register</h1>
+
+<form action="{% url "register" %}" method="post">
+  {% csrf_token %}
+  {{ form.as_p }}
+  <button type="submit" id="submit">Register</button>
+</form>
+
+You need to add a URL for our login view. To do this, open the urls.py file in the myapp directory and add the following code:
+
+urlpatterns = [
+    path('admin/', admin.site.urls),
+    path('login/', LoginView.as_view(), name='login'),
+    path('register/', RegisterView.as_view(), name='register')
+
+
+Run your server
